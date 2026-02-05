@@ -160,3 +160,20 @@ export function loadSettings() {
 export function saveSettings(s) {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s || {}));
 }
+
+const OP_SESSION_KEY = "apt_presentation_operator_session_v1";
+
+export function loadOperatorSession() {
+  try {
+    return localStorage.getItem(OP_SESSION_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function saveOperatorSession(enabled) {
+  try {
+    if (enabled) localStorage.setItem(OP_SESSION_KEY, "1");
+    else localStorage.removeItem(OP_SESSION_KEY);
+  } catch {}
+}

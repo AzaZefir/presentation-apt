@@ -14,6 +14,8 @@ import {
   saveSettings,
   getSvgText,
   resolveSchemeKey,
+  loadOperatorSession,
+  saveOperatorSession,
 } from "./storage.js";
 import { sha256Hex } from "./crypto.js";
 
@@ -36,6 +38,39 @@ function downloadJson(filename, obj) {
   URL.revokeObjectURL(url);
 }
 
+  function exportBackup() {
+    const name = `backup_${new Date()
+      .toISOString()
+      .slice(0, 19)
+      .replace(/[:T]/g, "-")}.json`;
+    downloadJson(name, buildBackupJson());
+  }
+
+  function importBackup() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "application/json";
+    input.onchange = async () => {
+      const f = input.files?.[0];
+      if (!f) return;
+      const txt = await f.text();
+      const obj = JSON.parse(txt);
+      restoreFromBackupJson(obj);
+      alert("Импорт выполнен. Перезагрузите страницу.");
+    };
+    input.click();
+  }
+
+  function changePassword() {
+    const p = prompt("Новый пароль оператора (запомните его!):");
+    if (!p) return;
+    sha256Hex(p).then((h) => {
+      const s = loadSettings();
+      s.operatorPasswordHash = h;
+      saveSettings(s);
+      alert("Пароль изменён. Перезагрузите страницу.");
+    });
+  }
 function FloorPlan({
   blockId,
   floor,
@@ -77,11 +112,11 @@ function FloorPlan({
 export default function App() {
   const [slide, setSlide] = useState(0);
 
-  const [operatorEnabled, setOperatorEnabled] = useState(false);
+  const [operatorEnabled, setOperatorEnabled] = useState(() => loadOperatorSession());
   const [loginOpen, setLoginOpen] = useState(false);
 
   const [assignOpen, setAssignOpen] = useState(false);
-  const [assignCtx, setAssignCtx] = useState(null); // {blockId, floor, posKey}
+  const [assignCtx, setAssignCtx] = useState(null);
   const [fullName, setFullName] = useState("");
 
   const [schemeOpen, setSchemeOpen] = useState(false);
@@ -133,6 +168,7 @@ export default function App() {
     const h = await sha256Hex(password);
     if (h === savedHash) {
       setOperatorEnabled(true);
+      saveOperatorSession(true);
       setLoginOpen(false);
       return true;
     }
@@ -141,6 +177,7 @@ export default function App() {
 
   function logout() {
     setOperatorEnabled(false);
+    saveOperatorSession(false);
   }
 
   function requestAssign(blockId, floor, posKey) {
@@ -175,28 +212,7 @@ export default function App() {
     setSlide((s) => s);
   }
 
-  function exportBackup() {
-    const name = `backup_${new Date()
-      .toISOString()
-      .slice(0, 19)
-      .replace(/[:T]/g, "-")}.json`;
-    downloadJson(name, buildBackupJson());
-  }
 
-  function importBackup() {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = "application/json";
-    input.onchange = async () => {
-      const f = input.files?.[0];
-      if (!f) return;
-      const txt = await f.text();
-      const obj = JSON.parse(txt);
-      restoreFromBackupJson(obj);
-      alert("Импорт выполнен. Перезагрузите страницу.");
-    };
-    input.click();
-  }
 
   function replaceSchemes() {
     setSchemeOpen(true);
@@ -224,17 +240,6 @@ export default function App() {
     saveSchemeOverrides(over);
     setSchemesVersion((v) => v + 1);
     alert("Схема сохранена.");
-  }
-
-  function changePassword() {
-    const p = prompt("Новый пароль оператора (запомните его!):");
-    if (!p) return;
-    sha256Hex(p).then((h) => {
-      const s = loadSettings();
-      s.operatorPasswordHash = h;
-      saveSettings(s);
-      alert("Пароль изменён. Перезагрузите страницу.");
-    });
   }
 
   const current = slides[slide];
