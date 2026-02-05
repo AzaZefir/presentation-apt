@@ -25,7 +25,6 @@ Thumbs.db
 web/node_modules/
 web/.eslintcache
 web/.parcel-cache
-web/dist/
 web/.vite/
 
 # Env / secrets
