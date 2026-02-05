@@ -38,39 +38,39 @@ function downloadJson(filename, obj) {
   URL.revokeObjectURL(url);
 }
 
-  function exportBackup() {
-    const name = `backup_${new Date()
-      .toISOString()
-      .slice(0, 19)
-      .replace(/[:T]/g, "-")}.json`;
-    downloadJson(name, buildBackupJson());
-  }
+function exportBackup() {
+  const name = `backup_${new Date()
+    .toISOString()
+    .slice(0, 19)
+    .replace(/[:T]/g, "-")}.json`;
+  downloadJson(name, buildBackupJson());
+}
 
-  function importBackup() {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = "application/json";
-    input.onchange = async () => {
-      const f = input.files?.[0];
-      if (!f) return;
-      const txt = await f.text();
-      const obj = JSON.parse(txt);
-      restoreFromBackupJson(obj);
-      alert("Импорт выполнен. Перезагрузите страницу.");
-    };
-    input.click();
-  }
+function importBackup() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "application/json";
+  input.onchange = async () => {
+    const f = input.files?.[0];
+    if (!f) return;
+    const txt = await f.text();
+    const obj = JSON.parse(txt);
+    restoreFromBackupJson(obj);
+    alert("Импорт выполнен. Перезагрузите страницу.");
+  };
+  input.click();
+}
 
-  function changePassword() {
-    const p = prompt("Новый пароль оператора (запомните его!):");
-    if (!p) return;
-    sha256Hex(p).then((h) => {
-      const s = loadSettings();
-      s.operatorPasswordHash = h;
-      saveSettings(s);
-      alert("Пароль изменён. Перезагрузите страницу.");
-    });
-  }
+function changePassword() {
+  const p = prompt("Новый пароль оператора (запомните его!):");
+  if (!p) return;
+  sha256Hex(p).then((h) => {
+    const s = loadSettings();
+    s.operatorPasswordHash = h;
+    saveSettings(s);
+    alert("Пароль изменён. Перезагрузите страницу.");
+  });
+}
 function FloorPlan({
   blockId,
   floor,
@@ -111,8 +111,13 @@ function FloorPlan({
 
 export default function App() {
   const [slide, setSlide] = useState(0);
-
-  const [operatorEnabled, setOperatorEnabled] = useState(() => loadOperatorSession());
+  const [presentationMode, setPresentationMode] = useState(false);
+  const [presentationIndex, setPresentationIndex] = useState(0);
+  const [autoPlay, setAutoPlay] = useState(false);
+  const [autoMs, setAutoMs] = useState(5000); // 5 сек
+  const [operatorEnabled, setOperatorEnabled] = useState(() =>
+    loadOperatorSession(),
+  );
   const [loginOpen, setLoginOpen] = useState(false);
 
   const [assignOpen, setAssignOpen] = useState(false);
@@ -134,9 +139,36 @@ export default function App() {
       ...BLOCKS.map((b) => ({ kind: "block", blockId: b.id, title: b.title })),
     ];
   }, []);
+  const presentationSlides = useMemo(() => {
+    const list = [{ kind: "master", title: "Схема 11 блоков" }];
 
+    for (const b of BLOCKS) {
+      for (const f of FLOORS) {
+        list.push({
+          kind: "blockFloor",
+          blockId: b.id,
+          floor: f,
+          title: `${b.title} • Этаж ${f}`,
+        });
+      }
+    }
+    return list;
+  }, []);
   // master svg text (может быть url или текст)
   const [masterSvgText, setMasterSvgText] = useState("");
+
+  useEffect(() => {
+    if (!presentationMode || !autoPlay) return;
+
+    const t = setInterval(() => {
+      setPresentationIndex((i) => {
+        const last = presentationSlides.length - 1;
+        return i >= last ? last : i + 1; // можно сделать циклом, если хочешь
+      });
+    }, autoMs);
+
+    return () => clearInterval(t);
+  }, [presentationMode, autoPlay, autoMs, presentationSlides.length]);
 
   useEffect(() => {
     let alive = true;
@@ -160,6 +192,54 @@ export default function App() {
   function next() {
     setSlide((s) => Math.min(slides.length - 1, s + 1));
   }
+  useEffect(() => {
+    function onKey(e) {
+      // если открыт любой модал — не вмешиваемся
+      if (loginOpen || assignOpen || schemeOpen) return;
+
+      // ENTER запускает презентацию
+      if (!presentationMode && e.key === "Enter") {
+        e.preventDefault();
+        setPresentationMode(true);
+        setPresentationIndex(0); // старт с master
+        return;
+      }
+
+      // ESC выходит из презентации
+      if (presentationMode && e.key === "Escape") {
+        e.preventDefault();
+        setPresentationMode(false);
+        return;
+      }
+
+      // Навигация внутри презентации
+      if (presentationMode) {
+        if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          setPresentationIndex((i) => Math.max(0, i - 1));
+        }
+        if (e.key === "ArrowRight" || e.key === " " /* Space */) {
+          e.preventDefault();
+          setPresentationIndex((i) =>
+            Math.min(presentationSlides.length - 1, i + 1),
+          );
+        }
+        if (e.key === "a" || e.key === "A") {
+          e.preventDefault();
+          setAutoPlay((v) => !v);
+        }
+      }
+    }
+
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [
+    presentationMode,
+    presentationSlides.length,
+    loginOpen,
+    assignOpen,
+    schemeOpen,
+  ]);
 
   async function doLogin(password) {
     const settings = loadSettings();
@@ -212,8 +292,6 @@ export default function App() {
     setSlide((s) => s);
   }
 
-
-
   function replaceSchemes() {
     setSchemeOpen(true);
   }
@@ -261,13 +339,46 @@ export default function App() {
           </button>
         )}
       </div>
+      {presentationMode &&
+        (() => {
+          const p = presentationSlides[presentationIndex];
+
+          if (p.kind === "master") {
+            return (
+              <PresentationOverlay title="Схема 11 блоков">
+                <SvgPlan
+                  svgText={masterSvgText}
+                  occupiedIds={[]}
+                  operatorEnabled={false}
+                  onApartmentClick={() => {}}
+                />
+              </PresentationOverlay>
+            );
+          }
+
+          // blockFloor
+          return (
+            <PresentationOverlay title={p.title}>
+              <FloorPlan
+                blockId={p.blockId}
+                floor={p.floor}
+                schemesOverride={schemesOverride}
+                occupiedIds={collectOccupiedIds(p.blockId, p.floor)}
+                operatorEnabled={false}
+                onApartmentClick={() => {}}
+              />
+            </PresentationOverlay>
+          );
+        })()}
 
       <Carousel index={slide} count={slides.length} onPrev={prev} onNext={next}>
         {current.kind === "master" && (
           <SlideFrame title="Слайд 0: Схема 11 блоков">
-            <div
-              className="svgOnly"
-              dangerouslySetInnerHTML={{ __html: masterSvgText }}
+            <SvgPlan
+              svgText={masterSvgText}
+              occupiedIds={[]}
+              operatorEnabled={false}
+              onApartmentClick={() => {}}
             />
           </SlideFrame>
         )}
@@ -399,6 +510,29 @@ function LoginForm({ onLogin }) {
           Войти
         </button>
       </div>
+    </div>
+  );
+}
+function collectOccupiedIds(blockId, floor) {
+  const map = JSON.parse(
+    localStorage.getItem("apt_presentation_occupancy_v1") || "{}",
+  );
+  const occupiedIds = [];
+  const prefix = `${blockId}|${floor}|`;
+  for (const k of Object.keys(map)) {
+    if (k.startsWith(prefix)) occupiedIds.push(k.slice(prefix.length));
+  }
+  return occupiedIds;
+}
+function PresentationOverlay({ title, children }) {
+  return (
+    <div className="pptOverlay">
+      <div className="pptTop">
+        <div className="pptTitle">{title}</div>
+        <div className="pptHint">←/→ или Space • Esc выход • Enter старт</div>
+      </div>
+
+      <div className="pptStage">{children}</div>
     </div>
   );
 }
